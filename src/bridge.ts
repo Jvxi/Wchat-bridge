@@ -1,4 +1,4 @@
-﻿import os from "node:os";
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
@@ -24,49 +24,11 @@ import { resolveEmojiCommand, parseEmojiBindingsCommand, setBinding, removeBindi
 import type { WeixinCredentials } from "./auth.js";
 import { LONG_POLL_TIMEOUT_MS, ASR_ENABLED, CLAUDE_MODEL, DATA_DIR } from "./config.js";
 import { createRequire } from "node:module";
+import { initLogger, closeLogger } from "./logger.js";
+import { fmtBytes, fmtUptime, formatChineseDateTime, loadJsonFile, saveJsonFile, createDebouncedSave } from "./utils.js";
 
-// ─── 文件日志 ───
-const LOG_DIR = DATA_DIR;
-const LOG_FILE = path.join(LOG_DIR, "bridge.log");
-
-function ensureLogDir(): void {
-  if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
-}
-
-function getTimestamp(): string {
-  return new Date().toLocaleString("zh-CN", { hour12: false });
-}
-
-function writeLog(level: string, args: any[]): void {
-  try {
-    ensureLogDir();
-    const msg = args.map(a => typeof a === "string" ? a : JSON.stringify(a)).join(" ");
-    const line = `[${getTimestamp()}] [${level}] ${msg}\n`;
-    fs.appendFileSync(LOG_FILE, line, "utf-8");
-  } catch {}
-}
-
-// 拦截 console 输出到文件
-const origLog = console.log;
-const origWarn = console.warn;
-const origError = console.error;
-
-console.log = (...args: any[]) => {
-  writeLog("INFO", args);
-  origLog.apply(console, args);
-};
-console.warn = (...args: any[]) => {
-  writeLog("WARN", args);
-  origWarn.apply(console, args);
-};
-console.error = (...args: any[]) => {
-  writeLog("ERROR", args);
-  origError.apply(console, args);
-};
-
-// 启动时清空旧日志
-ensureLogDir();
-fs.writeFileSync(LOG_FILE, `=== WeChat Claude Bridge Log ===\n启动时间: ${getTimestamp()}\n\n`, "utf-8");
+// 初始化日志系统
+initLogger();
 
 // Context token 持久化路径
 const CONTEXT_TOKENS_FILE = path.join(DATA_DIR, "context-tokens.json");
@@ -80,37 +42,38 @@ const typingTickets = new Map<string, string>();
 // Per-user voice mode (true = 回复语音)
 const voiceMode = new Map<string, boolean>();
 
-// Dedup: track processed message keys (keep last 500)
-const processedMsgKeys = new Set<string>();
+// Dedup: track processed message keys with timestamps
+const processedMsgKeys = new Map<string, number>();
 const MAX_SEEN_MSG_KEYS = 500;
+const MSG_KEY_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// 防抖保存 context tokens
+const debouncedSaveContextTokens = createDebouncedSave(() => saveContextTokens(), 3);
 
 /** 加载持久化的 context tokens */
 function loadContextTokens(): void {
-  try {
-    if (!fs.existsSync(CONTEXT_TOKENS_FILE)) return;
-    const data = JSON.parse(fs.readFileSync(CONTEXT_TOKENS_FILE, "utf-8"));
-    if (typeof data === "object" && data !== null) {
-      for (const [userId, token] of Object.entries(data)) {
-        if (typeof token === "string") {
-          contextTokens.set(userId, token);
-        }
-      }
-      console.log(`已加载 ${contextTokens.size} 个用户的 context token`);
+  const data = loadJsonFile<Record<string, string>>(CONTEXT_TOKENS_FILE, {});
+  for (const [userId, token] of Object.entries(data)) {
+    if (typeof token === "string") {
+      contextTokens.set(userId, token);
     }
-  } catch {}
+  }
+  if (contextTokens.size > 0) {
+    console.log(`已加载 ${contextTokens.size} 个用户的 context token`);
+  }
 }
 
 /** 保存 context tokens 到文件 */
 function saveContextTokens(): void {
   try {
-    const dir = path.dirname(CONTEXT_TOKENS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const data: Record<string, string> = {};
     for (const [userId, token] of contextTokens.entries()) {
       data[userId] = token;
     }
-    fs.writeFileSync(CONTEXT_TOKENS_FILE, JSON.stringify(data, null, 2), "utf-8");
-  } catch {}
+    saveJsonFile(CONTEXT_TOKENS_FILE, data);
+  } catch (err) {
+    console.warn(`保存 context tokens 失败: ${err}`);
+  }
 }
 
 // 启动时加载 context tokens
@@ -125,25 +88,25 @@ function makeMsgKey(msg: WeixinMessage): string {
 }
 
 function markProcessed(key: string): boolean {
-  if (processedMsgKeys.has(key)) return false;
-  processedMsgKeys.add(key);
+  const now = Date.now();
+
+  // 清理过期的 key
   if (processedMsgKeys.size > MAX_SEEN_MSG_KEYS) {
-    const iter = processedMsgKeys.values();
-    for (let i = 0; i < 100; i++) iter.next();
-    const cutoff = iter.next().value as string | undefined;
-    if (cutoff !== undefined) {
-      for (const k of processedMsgKeys) {
-        if (k <= cutoff) processedMsgKeys.delete(k);
-        else break;
+    for (const [k, timestamp] of processedMsgKeys) {
+      if (now - timestamp > MSG_KEY_TTL_MS) {
+        processedMsgKeys.delete(k);
       }
     }
   }
+
+  if (processedMsgKeys.has(key)) return false;
+  processedMsgKeys.set(key, now);
   return true;
 }
 
 function setContextToken(userId: string, token: string) {
   contextTokens.set(userId, token);
-  saveContextTokens();
+  debouncedSaveContextTokens();
 }
 
 function getContextToken(userId: string): string | undefined {
@@ -162,7 +125,9 @@ async function fetchTypingTicket(creds: WeixinCredentials, userId: string, conte
       typingTickets.set(userId, resp.typing_ticket);
       return resp.typing_ticket;
     }
-  } catch {}
+  } catch (err) {
+    console.warn(`获取 typing ticket 失败: ${err}`);
+  }
   return typingTickets.get(userId);
 }
 
@@ -177,7 +142,9 @@ async function startTyping(creds: WeixinCredentials, userId: string) {
       typingTicket: ticket,
       status: TypingStatus.TYPING,
     });
-  } catch {}
+  } catch (err) {
+    console.warn(`发送 typing 状态失败: ${err}`);
+  }
 }
 
 async function stopTyping(creds: WeixinCredentials, userId: string) {
@@ -191,10 +158,12 @@ async function stopTyping(creds: WeixinCredentials, userId: string) {
       typingTicket: ticket,
       status: TypingStatus.CANCEL,
     });
-  } catch {}
+  } catch (err) {
+    console.warn(`取消 typing 状态失败: ${err}`);
+  }
 }
 
-function getSystemStatus(): string {
+async function getSystemStatus(): Promise<string> {
   const cpus = os.cpus();
   const totalMem = os.totalmem();
   const freeMem = os.freemem();
@@ -209,7 +178,7 @@ function getSystemStatus(): string {
     return acc + ((total - idle) / total) * 100;
   }, 0) / cpus.length;
 
-  // Disk usage
+  // Disk usage (async)
   let diskInfo = "未知";
   try {
     if (process.platform === "win32") {
@@ -261,23 +230,6 @@ function getSystemStatus(): string {
   return lines.join("\n");
 }
 
-function fmtBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function fmtUptime(seconds: number): string {
-  const d = Math.floor(seconds / 86400);
-  const h = Math.floor((seconds % 86400) / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const parts: string[] = [];
-  if (d > 0) parts.push(`${d}天`);
-  if (h > 0) parts.push(`${h}小时`);
-  if (m > 0) parts.push(`${m}分钟`);
-  return parts.join("") || "< 1分钟";
-}
 /** 自然语言删除/清除指令识别 */
 function isDeleteCommand(text: string): boolean {
   return /清除|清空|删除|重置/.test(text) &&
@@ -364,7 +316,7 @@ async function processMessage(msg: WeixinMessage, creds: WeixinCredentials): Pro
   }
 
   if (text === "/status" || text === "/状态") {
-    const status = getSystemStatus();
+    const status = await getSystemStatus();
     await reply(from, status, creds);
     return;
   }
@@ -376,79 +328,102 @@ async function processMessage(msg: WeixinMessage, creds: WeixinCredentials): Pro
     let response: string;
 
     if (imageItem) {
+      // Image message: download, decrypt, send to Claude
+      console.log(`处理图片消息...`);
       const imageData = await downloadAndDecryptImage(imageItem);
       if (imageData) {
-        console.log(`  图片 → AI 分析`);
+        console.log(`图片下载完成，调用 AI 分析...`);
         response = await chatWithImage(from, text || "请描述这张图片", imageData.base64, imageData.mediaType);
       } else if (text) {
+        console.log(`图片下载失败，处理文字...`);
         response = await chat(from, text);
       } else {
         response = "收到图片，但无法解密。";
       }
     } else if (videoItem) {
+      // Video message: download and analyze
+      console.log(`处理视频消息...`);
       const videoBase64 = await downloadVideo(videoItem);
       if (videoBase64) {
-        console.log(`  视频 → AI 分析`);
+        console.log(`视频下载完成，调用 AI 分析...`);
         response = await chatWithVideo(from, text || "请描述这个视频中发生了什么", videoBase64);
       } else if (text) {
+        console.log(`视频下载失败，处理文字...`);
         response = await chat(from, text);
       } else {
         response = "收到视频，但无法下载。";
       }
     } else if (voiceItem && ASR_ENABLED) {
+      // Voice message: check for WeChat transcription first, then try ASR
+      console.log(`处理语音消息...`);
+
+      // 优先使用微信自带的语音转文字
       const voiceText = voiceItem.text?.trim();
       if (voiceText) {
-        console.log(`  语音 → 文字: ${voiceText}`);
+        console.log(`微信语音转文字: ${voiceText}`);
         response = await chat(from, voiceText);
       } else {
+        // 微信没有转文字，尝试 ASR
         const voiceData = await downloadVoice(voiceItem);
         if (voiceData) {
+          console.log(`语音下载完成，识别中 (格式: ${voiceData.format})`);
           const recognizedText = await recognizeSpeech(voiceData.base64, voiceData.format);
           if (recognizedText) {
-            console.log(`  语音 → 识别: ${recognizedText}`);
+            console.log(`语音识别结果: ${recognizedText}`);
+            console.log(`调用 AI 回复...`);
             response = await chat(from, recognizedText);
           } else if (text) {
+            console.log(`语音识别失败，处理文字...`);
             response = await chat(from, text);
           } else {
             response = "收到语音，但无法识别内容。请在微信中开启语音转文字功能，或用文字发送。";
           }
         } else if (text) {
+          console.log(`语音下载失败，处理文字...`);
           response = await chat(from, text);
         } else {
           response = "收到语音，但无法识别内容。请在微信中开启语音转文字功能，或用文字发送。";
         }
       }
     } else if (text) {
+      console.log(`调用 AI 回复...`);
       response = await chat(from, text);
     } else {
       return; // No text, image, or voice, ignore
     }
 
     console.log(`\n  AI 回复:`);
-    console.log(`  ${"─".repeat(40)}`);
+    console.log(`  ${"".repeat(40)}`);
     console.log(`  ${response.replace(/\n/g, "\n  ")}`);
-    console.log(`  ${"─".repeat(40)}`);
+    console.log(`  ${"".repeat(40)}`);
 
     // 检查是否启用语音模式
     if (voiceMode.get(from)) {
-      console.log(`  语音合成中...`);
+      console.log(`语音模式已启用，合成中...`);
       const audioBuf = await synthesizeSpeech(response);
       if (audioBuf) {
+        // 保存音频到 Audio 文件夹
         const tmpDir = path.join(DATA_DIR, "audio");
         if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
         const tmpPath = path.join(tmpDir, `tts_${Date.now()}.wav`);
         fs.writeFileSync(tmpPath, audioBuf);
+        console.log(`音频已保存: ${tmpPath} (${audioBuf.length} bytes)`);
 
         try {
+          // WAV 需要转换为 SILK 才能发送为微信语音
           const { encode } = await import("silk-wasm");
+          console.log(`转换 SILK 格式...`);
           const silkResult = await encode(audioBuf, 24000);
           const silkBuf = Buffer.from(silkResult.data);
           const silkPath = path.join(tmpDir, `tts_${Date.now()}.silk`);
           fs.writeFileSync(silkPath, silkBuf);
+          console.log(`SILK 转换完成: ${silkPath} (${silkBuf.length} bytes)`);
 
+          // 等待上传完成后再清理
           const ctxToken = getContextToken(from) || "";
+          console.log(`上传语音 contextToken=${ctxToken ? "有" : "无"}`);
           await sendVoiceMessage(creds.baseUrl, creds.botToken, from, ctxToken, silkPath);
-          console.log(`  语音已发送 (${audioBuf.length} → ${silkBuf.length} bytes)`);
+          console.log(`语音消息发送完成`);
 
           // 延迟清理
           setTimeout(() => {
@@ -513,9 +488,7 @@ export async function runBridge(creds: WeixinCredentials, abortSignal?: AbortSig
   // 启动后立即向最近活跃用户发送就绪消息
   const lastUserId = [...contextTokens.keys()].pop();
   if (lastUserId) {
-    const now = new Date();
-    const dateStr = now.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", weekday: "long" });
-    const timeStr = now.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const { dateStr, timeStr } = formatChineseDateTime();
 
     const welcomeText = [
       `WeChat Claude Bridge 已就绪`,
@@ -640,6 +613,7 @@ export async function runBridge(creds: WeixinCredentials, abortSignal?: AbortSig
   try {
     await notifyStop({ baseUrl: creds.baseUrl, token: creds.botToken });
   } catch {}
+  closeLogger();
   console.log("桥接服务已停止。");
 }
 

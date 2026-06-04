@@ -283,32 +283,11 @@ function detectAudioFormat(buf: Buffer): string {
 /** 将 SILK 转换为 PCM，再封装为 WAV */
 async function convertSilkToWav(silkBuf: Buffer): Promise<Buffer | null> {
   try {
-    const { decode, isSilk, getDuration } = await import("silk-wasm");
-
-    // 保存原始数据用于调试
-    const fs = await import("node:fs");
-    const os = await import("node:os");
-    const debugPath = `${os.tmpdir()}/wechat_voice_debug_${Date.now()}.silk`;
-    fs.writeFileSync(debugPath, silkBuf);
-    console.log(`[媒体] SILK 数据已保存到: ${debugPath} (${silkBuf.length} bytes)`);
+    const { decode, isSilk } = await import("silk-wasm");
 
     // 检查是否是有效的 SILK 数据
     console.log(`[媒体] isSilk(原始): ${isSilk(silkBuf)}`);
     console.log(`[媒体] isSilk(跳过1字节): ${isSilk(silkBuf.subarray(1))}`);
-
-    // 尝试获取时长
-    try {
-      const dur = getDuration(silkBuf);
-      console.log(`[媒体] getDuration(原始): ${dur}ms`);
-    } catch (e: any) {
-      console.log(`[媒体] getDuration(原始) 失败: ${e.message}`);
-    }
-    try {
-      const dur = getDuration(silkBuf.subarray(1));
-      console.log(`[媒体] getDuration(跳过1字节): ${dur}ms`);
-    } catch (e: any) {
-      console.log(`[媒体] getDuration(跳过1字节) 失败: ${e.message}`);
-    }
 
     // 尝试解码 - 先尝试原始数据，再尝试跳过前缀
     const attempts = [
@@ -326,8 +305,9 @@ async function convertSilkToWav(silkBuf: Buffer): Promise<Buffer | null> {
           const wavBuf = pcmToWav(pcmData, rate, 1, 16);
           console.log(`[媒体] WAV 封装完成: ${wavBuf.length} bytes`);
           return wavBuf;
-        } catch (err: any) {
-          console.warn(`[媒体] ${attempt.label} 采样率${rate} 失败: ${err.message}`);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.warn(`[媒体] ${attempt.label} 采样率${rate} 失败: ${errMsg}`);
         }
       }
     }
