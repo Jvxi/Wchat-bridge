@@ -25,9 +25,24 @@
 | 视频分析 | 发送视频由 AI 分析内容 |
 | 语音识别 | 语音消息自动转文字并回复 |
 | 语音回复 | TTS 合成语音消息回复 |
-| 联网搜索 | 自动检测需要联网查询的问题 |
+| 联网搜索 | 自动检测需要联网查询的问题并实时搜索 |
 | 天气查询 | 自动获取天气实况数据 |
 | 表情绑定 | 自定义表情触发命令 |
+
+<br/>
+
+## 工作原理
+
+~~~
+微信用户 <-> iLink API <-> Bridge 服务 <-> AI API
+                                    |
+                              +-----+-----+
+                              |           |
+                         对话历史管理   媒体处理
+                        (持久化 JSON)  (图片/语音/视频)
+~~~
+
+Bridge 通过微信 iLink 接口监听消息，将文本/图片/语音/视频转发给 AI API，再将回复发回微信。对话历史按用户独立存储并持久化到本地 JSON 文件。
 
 <br/>
 
@@ -35,7 +50,7 @@
 
 ### 环境要求
 
-- Node.js >= 18
+- Node.js >= 22
 - 微信账号（支持 iLink 接口）
 
 ### 安装
@@ -54,13 +69,14 @@ npm install
 cp .env.example .env
 ~~~
 
-| 配置项 | 说明 | 必填 |
+| 配置项 | 说明 | 默认值 |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | AI 服务 API Key | 是 |
-| `ANTHROPIC_BASE_URL` | API 地址 | 否 |
-| `CLAUDE_MODEL` | 模型名称 | 否 |
-| `ASR_ENABLED` | 语音识别开关 | 否 |
-| `WEB_SEARCH_ENABLED` | 联网搜索开关 | 否 |
+| `ANTHROPIC_API_KEY` | AI 服务 API Key（必填） | — |
+| `ANTHROPIC_BASE_URL` | 第三方代理 API 地址 | 官方地址 |
+| `CLAUDE_MODEL` | 模型名称 | `claude-sonnet-4-6` |
+| `MAX_HISTORY_LENGTH` | 每用户最大对话历史条数 | `50` |
+| `ASR_ENABLED` | 语音识别开关 | `true` |
+| `WEB_SEARCH_ENABLED` | 联网搜索开关 | `true` |
 
 ### 登录
 
