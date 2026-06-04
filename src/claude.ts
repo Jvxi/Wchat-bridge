@@ -1,7 +1,7 @@
-import OpenAI from "openai";
+﻿import OpenAI from "openai";
 import fs from "node:fs";
 import path from "node:path";
-import { ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, CLAUDE_MODEL, MAX_HISTORY_LENGTH, WEB_SEARCH_ENABLED } from "./config.js";
+import { ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, CLAUDE_MODEL, MAX_HISTORY_LENGTH, WEB_SEARCH_ENABLED, DATA_DIR } from "./config.js";
 
 const client = new OpenAI({
   apiKey: ANTHROPIC_API_KEY,
@@ -42,7 +42,7 @@ function getSystemPromptWithTime(): string {
 }
 
 // 持久化存储路径
-const STORAGE_DIR = "G:\\Software\\Temp1\\Documents";
+const STORAGE_DIR = DATA_DIR;
 const STORAGE_FILE = path.join(STORAGE_DIR, "weixin-claude-conversations.json");
 
 // 内存中的对话历史
@@ -98,15 +98,6 @@ function debouncedSave(): void {
 
 loadConversations();
 
-process.on("SIGINT", () => {
-  saveConversations();
-  process.exit(0);
-});
-process.on("SIGTERM", () => {
-  saveConversations();
-  process.exit(0);
-});
-
 function getHistory(userId: string): ConversationEntry[] {
   if (!conversations.has(userId)) conversations.set(userId, []);
   return conversations.get(userId)!;
@@ -115,7 +106,9 @@ function getHistory(userId: string): ConversationEntry[] {
 function trimHistory(userId: string): void {
   if (MAX_HISTORY_LENGTH <= 0) return;
   const hist = getHistory(userId);
-  while (hist.length > MAX_HISTORY_LENGTH) hist.shift();
+  if (hist.length > MAX_HISTORY_LENGTH) {
+    hist.splice(0, hist.length - MAX_HISTORY_LENGTH);
+  }
 }
 
 // ─── 搜索功能 ───

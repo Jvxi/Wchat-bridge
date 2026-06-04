@@ -1,4 +1,5 @@
-import { ANTHROPIC_API_KEY } from "./config.js";
+﻿import { ANTHROPIC_API_KEY } from "./config.js";
+import { saveConversations } from "./claude.js";
 import { login, loadCredentials } from "./auth.js";
 import { runBridge } from "./bridge.js";
 
@@ -23,10 +24,12 @@ async function main() {
   const ac = new AbortController();
   process.on("SIGINT", () => {
     console.log("\n正在停止...");
+    saveConversations();
     ac.abort();
   });
   process.on("SIGTERM", () => {
     console.log("\n正在停止...");
+    saveConversations();
     ac.abort();
   });
 

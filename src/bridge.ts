@@ -22,10 +22,10 @@ import { sendVoiceMessage } from "./media-upload.js";
 import { synthesizeSpeech } from "./tts.js";
 import { resolveEmojiCommand, parseEmojiBindingsCommand, setBinding, removeBinding, listBindings, formatBindingsListMessage } from "./emoji-bindings.js";
 import type { WeixinCredentials } from "./auth.js";
-import { LONG_POLL_TIMEOUT_MS, ASR_ENABLED } from "./config.js";
+import { LONG_POLL_TIMEOUT_MS, ASR_ENABLED, CLAUDE_MODEL, DATA_DIR } from "./config.js";
 
 // ─── 文件日志 ───
-const LOG_DIR = "G:\\Software\\Temp1\\Documents";
+const LOG_DIR = DATA_DIR;
 const LOG_FILE = path.join(LOG_DIR, "bridge.log");
 
 function ensureLogDir(): void {
@@ -68,7 +68,7 @@ ensureLogDir();
 fs.writeFileSync(LOG_FILE, `=== WeChat Claude Bridge Log ===\n启动时间: ${getTimestamp()}\n\n`, "utf-8");
 
 // Context token 持久化路径
-const CONTEXT_TOKENS_FILE = "G:\\Software\\Temp1\\Documents\\context-tokens.json";
+const CONTEXT_TOKENS_FILE = path.join(DATA_DIR, "context-tokens.json");
 
 // Per-user context token cache (needed to reply)
 const contextTokens = new Map<string, string>();
@@ -450,7 +450,7 @@ async function processMessage(msg: WeixinMessage, creds: WeixinCredentials): Pro
       const audioBuf = await synthesizeSpeech(response);
       if (audioBuf) {
         // 保存音频到 Audio 文件夹
-        const tmpDir = "G:\\Software\\Temp1\\Audio";
+        const tmpDir = path.join(DATA_DIR, "audio");
         if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
         const tmpPath = path.join(tmpDir, `tts_${Date.now()}.wav`);
         fs.writeFileSync(tmpPath, audioBuf);
@@ -519,7 +519,7 @@ export async function runBridge(creds: WeixinCredentials, abortSignal?: AbortSig
   console.log(`========================================`);
   console.log(`账号: ${creds.accountId}`);
   console.log(`服务端: ${creds.baseUrl}`);
-  console.log(`模型: mimo-v2-omni`);
+  console.log(`模型: ${CLAUDE_MODEL}`);
   console.log(`语音识别: ${ASR_ENABLED ? '启用' : '禁用'}`);
   console.log(`联网搜索: 启用`);
   console.log(``);
@@ -543,7 +543,7 @@ export async function runBridge(creds: WeixinCredentials, abortSignal?: AbortSig
       `WeChat Claude Bridge 已就绪`,
       ``,
       `时间: ${dateStr} ${timeStr}`,
-      `模型: mimo-v2-omni`,
+      `模型: ${CLAUDE_MODEL}`,
       `语音: ${ASR_ENABLED ? 'ON' : 'OFF'} | 搜索: ON`,
       ``,
       `命令`,
