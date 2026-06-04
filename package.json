@@ -1,0 +1,43 @@
+{
+  "name": "weixin-claude-bridge",
+  "version": "2.0.0",
+  "description": "Bridge WeChat to Claude/Mimo AI with voice recognition and web search",
+  "type": "module",
+  "bin": {
+    "weixin-bridge": "./bin/weixin-bridge.js",
+    "weixin-bridge-login": "./bin/weixin-bridge-login.js"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "login": "tsx src/auth.ts",
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "src"
+  ],
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "openai": "^4.78.0",
+    "qrcode-terminal": "^0.12.0",
+    "silk-wasm": "^3.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "wechat",
+    "claude",
+    "mimo",
+    "ai",
+    "bridge"
+  ],
+  "license": "MIT"
+}

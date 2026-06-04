@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+
+import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const srcPath = join(__dirname, "..", "src", "auth.ts");
+
+// Pass all arguments to the script
+const args = process.argv.slice(2).join(" ");
+
+try {
+  execSync(`npx tsx "${srcPath}" ${args}`, {
+    stdio: "inherit",
+    cwd: join(__dirname, ".."),
+  });
+} catch (err) {
+  process.exit(err.status || 1);
+}
