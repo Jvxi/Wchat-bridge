@@ -73,7 +73,7 @@ function loadConversations(): void {
   }
 }
 
-function saveConversations(): void {
+export function saveConversations(): void {
   try {
     if (!fs.existsSync(STORAGE_DIR)) {
       fs.mkdirSync(STORAGE_DIR, { recursive: true });
