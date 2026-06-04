@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { DATA_DIR } from "./config.js";
 
-const STORAGE_DIR = "G:\\Software\\Temp1\\Documents";
-const EMOJI_BINDINGS_FILE = path.join(STORAGE_DIR, "emoji-bindings.json");
+const EMOJI_BINDINGS_FILE = path.join(DATA_DIR, "emoji-bindings.json");
 
 export const DEFAULT_EMOJI_BINDINGS: Record<string, string> = {
   "[OK]": "/confirm",

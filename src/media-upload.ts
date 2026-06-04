@@ -3,9 +3,7 @@ import { createCipheriv } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { ANTHROPIC_API_KEY } from "./config.js";
-
-const CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
+import { ANTHROPIC_API_KEY, CDN_BASE_URL } from "./config.js";
 const CHANNEL_VERSION = "1.0.0";
 const SEND_TIMEOUT_MS = 15_000;
 const CDN_MAX_RETRIES = 3;
