@@ -376,77 +376,77 @@ async function processMessage(msg: WeixinMessage, creds: WeixinCredentials): Pro
 
     if (imageItem) {
       // Image message: download, decrypt, send to Claude
-      console.log(`[AI] 正在处理图片消息...`);
+      console.log(`处理图片消息...`);
       const imageData = await downloadAndDecryptImage(imageItem);
       if (imageData) {
-        console.log(`[AI] 图片下载完成，正在调用 AI 分析...`);
+        console.log(`图片下载完成，调用 AI 分析...`);
         response = await chatWithImage(from, text || "请描述这张图片", imageData.base64, imageData.mediaType);
       } else if (text) {
-        console.log(`[AI] 图片下载失败，正在处理文字...`);
+        console.log(`图片下载失败，处理文字...`);
         response = await chat(from, text);
       } else {
         response = "收到图片，但无法解密。";
       }
     } else if (videoItem) {
       // Video message: download and analyze
-      console.log(`[AI] 正在处理视频消息...`);
+      console.log(`处理视频消息...`);
       const videoBase64 = await downloadVideo(videoItem);
       if (videoBase64) {
-        console.log(`[AI] 视频下载完成，正在调用 AI 分析...`);
+        console.log(`视频下载完成，调用 AI 分析...`);
         response = await chatWithVideo(from, text || "请描述这个视频中发生了什么", videoBase64);
       } else if (text) {
-        console.log(`[AI] 视频下载失败，正在处理文字...`);
+        console.log(`视频下载失败，处理文字...`);
         response = await chat(from, text);
       } else {
         response = "收到视频，但无法下载。";
       }
     } else if (voiceItem && ASR_ENABLED) {
       // Voice message: check for WeChat transcription first, then try ASR
-      console.log(`[AI] 正在处理语音消息...`);
+      console.log(`处理语音消息...`);
 
       // 优先使用微信自带的语音转文字
       const voiceText = voiceItem.text?.trim();
       if (voiceText) {
-        console.log(`[AI] 微信语音转文字: ${voiceText}`);
+        console.log(`微信语音转文字: ${voiceText}`);
         response = await chat(from, voiceText);
       } else {
         // 微信没有转文字，尝试 ASR
         const voiceData = await downloadVoice(voiceItem);
         if (voiceData) {
-          console.log(`[AI] 语音下载完成，正在识别... (格式: ${voiceData.format})`);
+          console.log(`语音下载完成，识别中 (格式: ${voiceData.format})`);
           const recognizedText = await recognizeSpeech(voiceData.base64, voiceData.format);
           if (recognizedText) {
-            console.log(`[AI] 语音识别结果: ${recognizedText}`);
-            console.log(`[AI] 正在调用 AI 回复...`);
+            console.log(`语音识别结果: ${recognizedText}`);
+            console.log(`调用 AI 回复...`);
             response = await chat(from, recognizedText);
           } else if (text) {
-            console.log(`[AI] 语音识别失败，正在处理文字...`);
+            console.log(`语音识别失败，处理文字...`);
             response = await chat(from, text);
           } else {
             response = "收到语音，但无法识别内容。请在微信中开启语音转文字功能，或用文字发送。";
           }
         } else if (text) {
-          console.log(`[AI] 语音下载失败，正在处理文字...`);
+          console.log(`语音下载失败，处理文字...`);
           response = await chat(from, text);
         } else {
           response = "收到语音，但无法识别内容。请在微信中开启语音转文字功能，或用文字发送。";
         }
       }
     } else if (text) {
-      console.log(`[AI] 正在调用 AI 回复...`);
+      console.log(`调用 AI 回复...`);
       response = await chat(from, text);
     } else {
       return; // No text, image, or voice, ignore
     }
 
-    console.log(`[AI] 回复完成:`);
-    console.log(`----------------------------------------`);
-    console.log(response);
-    console.log(`----------------------------------------`);
+    console.log(`\n  AI 回复:`);
+    console.log(`  ${"".repeat(40)}`);
+    console.log(`  ${response.replace(/\n/g, "\n  ")}`);
+    console.log(`  ${"".repeat(40)}`);
 
     // 检查是否启用语音模式
     if (voiceMode.get(from)) {
-      console.log(`[TTS] 语音模式已启用，正在合成语音...`);
+      console.log(`语音模式已启用，合成中...`);
       const audioBuf = await synthesizeSpeech(response);
       if (audioBuf) {
         // 保存音频到 Audio 文件夹
@@ -454,23 +454,23 @@ async function processMessage(msg: WeixinMessage, creds: WeixinCredentials): Pro
         if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
         const tmpPath = path.join(tmpDir, `tts_${Date.now()}.wav`);
         fs.writeFileSync(tmpPath, audioBuf);
-        console.log(`[TTS] 音频已保存: ${tmpPath} (${audioBuf.length} bytes)`);
+        console.log(`音频已保存: ${tmpPath} (${audioBuf.length} bytes)`);
 
         try {
           // WAV 需要转换为 SILK 才能发送为微信语音
           const { encode } = await import("silk-wasm");
-          console.log(`[TTS] 正在转换为 SILK 格式...`);
+          console.log(`转换 SILK 格式...`);
           const silkResult = await encode(audioBuf, 24000);
           const silkBuf = Buffer.from(silkResult.data);
           const silkPath = path.join(tmpDir, `tts_${Date.now()}.silk`);
           fs.writeFileSync(silkPath, silkBuf);
-          console.log(`[TTS] SILK 转换完成: ${silkPath} (${silkBuf.length} bytes)`);
+          console.log(`SILK 转换完成: ${silkPath} (${silkBuf.length} bytes)`);
 
           // 等待上传完成后再清理
           const ctxToken = getContextToken(from) || "";
-          console.log(`[TTS] 开始上传语音... contextToken=${ctxToken ? "有" : "无"}`);
+          console.log(`上传语音 contextToken=${ctxToken ? "有" : "无"}`);
           await sendVoiceMessage(creds.baseUrl, creds.botToken, from, ctxToken, silkPath);
-          console.log(`[TTS] 语音消息发送完成`);
+          console.log(`语音消息发送完成`);
 
           // 延迟清理
           setTimeout(() => {
@@ -514,17 +514,15 @@ async function reply(to: string, text: string, creds: WeixinCredentials): Promis
 }
 
 export async function runBridge(creds: WeixinCredentials, abortSignal?: AbortSignal): Promise<void> {
-  console.log(`\n========================================`);
-  console.log(`  WeChat Claude Bridge 就绪`);
-  console.log(`========================================`);
-  console.log(`账号: ${creds.accountId}`);
-  console.log(`服务端: ${creds.baseUrl}`);
-  console.log(`模型: ${CLAUDE_MODEL}`);
-  console.log(`语音识别: ${ASR_ENABLED ? '启用' : '禁用'}`);
-  console.log(`联网搜索: 启用`);
   console.log(``);
-  console.log(`开始监听消息...`);
-  console.log(`========================================\n`);
+  console.log(`  WeChat Claude Bridge`);
+  console.log(`  ${"─".repeat(36)}`);
+  console.log(`  账号    ${creds.accountId}`);
+  console.log(`  服务端  ${creds.baseUrl}`);
+  console.log(`  模型    ${CLAUDE_MODEL}`);
+  console.log(`  语音    ${ASR_ENABLED ? "ON" : "OFF"}  |  搜索  ON`);
+  console.log(`  ${"─".repeat(36)}`);
+  console.log(`  监听中...\n`);
 
   try {
     await notifyStart({ baseUrl: creds.baseUrl, token: creds.botToken });
@@ -631,13 +629,11 @@ export async function runBridge(creds: WeixinCredentials, abortSignal?: AbortSig
         const hasImage = !!findImageItem(msg.item_list);
         const hasVoice = !!findVoiceItem(msg.item_list);
 
-        console.log(`\n========================================`);
-        console.log(`[收到消息] ${new Date().toLocaleTimeString()}`);
-        console.log(`[发送者] ${from}`);
-        if (text) console.log(`[内容] ${text}`);
-        if (hasImage) console.log(`[附件] 图片`);
-        if (hasVoice) console.log(`[附件] 语音`);
-        console.log(`========================================`);
+        const parts = [`收到消息 ${new Date().toLocaleTimeString()}`, `来自 ${from}`];
+        if (text) parts.push(`内容 ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}`);
+        if (hasImage) parts.push(`附件 图片`);
+        if (hasVoice) parts.push(`附件 语音`);
+        console.log(`\n  ${parts.join(" | ")}`);
 
         // Sequential: wait for each message to finish before processing next
         try {
