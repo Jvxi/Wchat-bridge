@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <strong>WeChat Claude Bridge</strong>
 </p>
 

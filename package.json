@@ -1,6 +1,6 @@
-﻿{
+{
   "name": "weixin-claude-bridge",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Bridge WeChat to Claude/Mimo AI with voice recognition and web search",
   "type": "module",
   "bin": {
